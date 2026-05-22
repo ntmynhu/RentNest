@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { MapPin, Maximize2, DollarSign } from 'lucide-react';
 import { Listing } from '../data/mockData';
 

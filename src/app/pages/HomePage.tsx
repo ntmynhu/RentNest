@@ -1,11 +1,24 @@
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Search, Home, ShieldCheck, MessageSquare, TrendingUp } from 'lucide-react';
 import { ListingCard } from '../components/ListingCard';
-import { mockListings } from '../data/mockData';
+import { listingService, Listing } from '../services/listingService';
 
 export function HomePage() {
-  const approvedListings = mockListings.filter(l => l.approvalStatus === 'approved');
-  const popularListings = approvedListings.slice(0, 4);
+  const [popularListings, setPopularListings] = useState<Listing[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    listingService.getRecommendations()
+      .then((data) => setPopularListings(data.slice(0, 4)))
+      .catch(() => {
+        // fallback: thử search thường
+        listingService.search({ limit: 4, sortBy: 'NEWEST' })
+          .then((res) => setPopularListings(res.data))
+          .catch(() => {})
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
 
   return (
     <div>
@@ -94,9 +107,16 @@ export function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {popularListings.map(listing => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))}
+            {isLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="rounded-xl bg-muted/40 animate-pulse h-64" />
+                ))
+              : popularListings.length > 0
+              ? popularListings.map(listing => (
+                  <ListingCard key={listing.id} listing={listing as any} />
+                ))
+              : <p className="col-span-4 text-center text-muted-foreground py-8">Chưa có phòng nào.</p>
+            }
           </div>
         </div>
       </section>

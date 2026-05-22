@@ -1,51 +1,62 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'tenant' | 'landlord' | 'admin' | null;
-}
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authService, AuthUser } from '../services/authService';
 
 interface AuthContextType {
-  user: User | null;
-  login: (email: string, password: string, role: 'tenant' | 'landlord') => void;
-  logout: () => void;
-  switchRole: (role: 'tenant' | 'landlord') => void;
+  user: AuthUser | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<AuthUser>;
+  register: (payload: { fullName: string; email: string; password: string; phone: string }) => Promise<{ message: string }>;
+  logout: () => Promise<void>;
+  forgotPassword: (email: string) => Promise<{ message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = (email: string, password: string, role: 'tenant' | 'landlord') => {
-    // Mock login - in production this would call an API
-    setUser({
-      id: role === 'tenant' ? 'tenant-001' : 'landlord-001',
-      name: role === 'tenant' ? 'Nguyễn Văn Minh' : 'Trần Thị Lan',
-      email,
-      role
-    });
+  // Tự động load lại user khi refresh trang
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      authService.getMe()
+        .then(setUser)
+        .catch(() => {
+          localStorage.removeItem('accessToken');
+          setUser(null);
+        })
+        .finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // UC2: Đăng nhập thật
+  const login = async (email: string, password: string): Promise<AuthUser> => {
+    const result = await authService.login(email, password);
+    setUser(result.user);
+    return result.user;
   };
 
-  const logout = () => {
+  // UC1: Đăng ký thật
+  const register = async (payload: { fullName: string; email: string; password: string; phone: string }) => {
+    return authService.register(payload);
+  };
+
+  // Đăng xuất
+  const logout = async () => {
+    await authService.logout();
     setUser(null);
   };
 
-  const switchRole = (role: 'tenant' | 'landlord') => {
-    if (user) {
-      setUser({
-        ...user,
-        id: role === 'tenant' ? 'tenant-001' : 'landlord-001',
-        name: role === 'tenant' ? 'Nguyễn Văn Minh' : 'Trần Thị Lan',
-        role
-      });
-    }
+  // UC3: Quên mật khẩu
+  const forgotPassword = async (email: string) => {
+    return authService.forgotPassword(email);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, switchRole }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, forgotPassword }}>
       {children}
     </AuthContext.Provider>
   );

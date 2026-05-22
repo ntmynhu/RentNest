@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Home, Users, DollarSign, Edit, Trash2, Eye, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link } from 'react-router-dom';
 import { mockListings } from '../data/mockData';
 
 export function LandlordDashboard() {
