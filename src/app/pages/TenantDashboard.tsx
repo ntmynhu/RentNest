@@ -28,8 +28,8 @@ export function TenantDashboard() {
   useEffect(() => {
     paymentService.getAll()
       .then(res => {
-        setPayments(res.payments);
-        setSummary(res.summary);
+        setPayments(res?.payments ?? []);
+        setSummary(res?.summary ?? {});
       })
       .catch(() => {})
       .finally(() => setPaymentsLoading(false));

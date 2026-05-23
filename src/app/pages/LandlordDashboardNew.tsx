@@ -90,8 +90,8 @@ export function LandlordDashboardNew() {
 
     paymentService.getAll()
       .then(res => {
-        setPayments(res.payments);
-        setPaymentSummary(res.summary);
+        setPayments(res?.payments ?? []);
+        setPaymentSummary(res?.summary ?? {});
       })
       .catch(() => {})
       .finally(() => setLoadingPayments(false));
