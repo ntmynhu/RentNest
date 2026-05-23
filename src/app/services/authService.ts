@@ -25,9 +25,10 @@ export const authService = {
     email: string;
     password: string;
     phone: string;
+    role?: string;
   }) {
     const { data } = await api.post('/auth/register', payload);
-    return data as { message: string };
+    return data.metaData as { message: string; user: AuthUser; accessToken: string; refreshToken: string };
   },
 
   // UC3: Quên mật khẩu

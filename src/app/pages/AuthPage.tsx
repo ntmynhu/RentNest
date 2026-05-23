@@ -53,14 +53,15 @@ export function AuthPage() {
       setError('Mật khẩu xác nhận không khớp');
       return;
     }
-    const result = await register({
+    const loggedInUser = await register({
       fullName: formData.fullName,
       email: formData.email,
       phone: formData.phone,
       password: formData.password,
+      role: userType === 'landlord' ? 'LANDLORD' : 'TENANT',
     });
-    setSuccess(result.message);
-    setTimeout(() => setMode('login'), 3000);
+    const dest = roleMap[loggedInUser.role] ?? '/';
+    navigate(dest);
   };
 
   const handleForgot = async () => {
