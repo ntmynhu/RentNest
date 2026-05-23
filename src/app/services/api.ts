@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-// Tất cả request đều đi qua /api → Vite proxy forward sang localhost:3000
+// Dev: dùng Vite proxy (/api → localhost:3000)
+// Production: VITE_API_URL=https://your-be.onrender.com/api
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: BASE_URL,
   withCredentials: true, // gửi cookie refreshToken
   headers: { 'Content-Type': 'application/json' },
 });

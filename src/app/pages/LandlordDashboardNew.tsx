@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus, Home, Users, FileText, DollarSign, MessageSquare,
-  Eye, Trash2, AlertCircle, CheckCircle, Link as LinkIcon,
+  Eye, Trash2, AlertCircle, CheckCircle, ImagePlus, X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { listingService, Listing } from '../services/listingService';
 import { tenantService, Tenant } from '../services/tenantService';
 import { contractService, Contract } from '../services/contractService';
 import { paymentService, Payment } from '../services/paymentService';
+import { uploadService } from '../services/uploadService';
 
 const ROOM_TYPES = [
   { value: 'SINGLE_ROOM', label: 'Phòng trọ' },
@@ -44,9 +45,32 @@ export function LandlordDashboardNew() {
   const [postSuccess, setPostSuccess] = useState('');
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
 
+  // Image upload state
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Paid dialog
   const [markPaidId, setMarkPaidId] = useState<number | null>(null);
   const [paidDate, setPaidDate] = useState(new Date().toISOString().slice(0, 10));
+
+  // Add tenant dialog
+  const [showAddTenant, setShowAddTenant] = useState(false);
+  const [tenantForm, setTenantForm] = useState({
+    name: '', email: '', phone: '', listingId: '', moveInDate: new Date().toISOString().slice(0, 10),
+  });
+  const [tenantFormError, setTenantFormError] = useState('');
+  const [submittingTenant, setSubmittingTenant] = useState(false);
+
+  // Create contract dialog
+  const [showCreateContract, setShowCreateContract] = useState(false);
+  const [contractForm, setContractForm] = useState({
+    tenantId: '', listingId: '', startDate: new Date().toISOString().slice(0, 10),
+    endDate: '', rentAmount: '', depositAmount: '', terms: '',
+  });
+  const [contractFormError, setContractFormError] = useState('');
+  const [submittingContract, setSubmittingContract] = useState(false);
 
   useEffect(() => {
     listingService.getMyListings()
@@ -131,6 +155,28 @@ export function LandlordDashboardNew() {
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    // Max 10 ảnh
+    const combined = [...imageFiles, ...files].slice(0, 10);
+    setImageFiles(combined);
+
+    // Tạo preview URLs
+    const previews = combined.map(f => URL.createObjectURL(f));
+    setImagePreviews(previews);
+
+    // Reset input để có thể chọn lại cùng file
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveImage = (index: number) => {
+    URL.revokeObjectURL(imagePreviews[index]);
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmitPost = async (e: React.FormEvent) => {
     e.preventDefault();
     const { title, description, price, area, address, district, city, roomType } = postForm;
@@ -142,6 +188,14 @@ export function LandlordDashboardNew() {
     setPostSuccess('');
     setIsSubmittingPost(true);
     try {
+      // Upload ảnh lên Cloudinary trước (nếu có)
+      let imageUrls: string[] = [];
+      if (imageFiles.length > 0) {
+        setUploadProgress(`Đang tải ${imageFiles.length} ảnh lên...`);
+        imageUrls = await uploadService.uploadImages(imageFiles);
+        setUploadProgress('');
+      }
+
       const created = await listingService.create({
         title,
         description,
@@ -151,12 +205,18 @@ export function LandlordDashboardNew() {
         district: district || undefined,
         city: city || undefined,
         roomType,
+        imageUrls,
       });
       setListings(prev => [created, ...prev]);
       setPostSuccess('Tin đăng đã được gửi duyệt thành công!');
       setPostForm({ title: '', description: '', price: '', area: '', address: '', district: '', city: 'TP. Hồ Chí Minh', roomType: 'SINGLE_ROOM' });
+      // Xóa ảnh preview
+      imagePreviews.forEach(url => URL.revokeObjectURL(url));
+      setImageFiles([]);
+      setImagePreviews([]);
       setTimeout(() => { setShowPostForm(false); setPostSuccess(''); }, 2000);
     } catch (err: any) {
+      setUploadProgress('');
       setPostError(err?.response?.data?.message || 'Đã xảy ra lỗi, vui lòng thử lại');
     } finally {
       setIsSubmittingPost(false);
@@ -164,6 +224,77 @@ export function LandlordDashboardNew() {
   };
 
   const pendingPayments = payments.filter(p => p.status !== 'PAID').length;
+
+  // ── Thêm người thuê ──────────────────────────────────────────
+  const handleAddTenant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { name, email, phone, listingId, moveInDate } = tenantForm;
+    if (!name || !email || !phone || !listingId || !moveInDate) {
+      setTenantFormError('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+    setTenantFormError('');
+    setSubmittingTenant(true);
+    try {
+      const created = await tenantService.create({
+        name, email, phone,
+        listingId: Number(listingId),
+        moveInDate,
+      });
+      setTenants(prev => [created, ...prev]);
+      setShowAddTenant(false);
+      setTenantForm({ name: '', email: '', phone: '', listingId: '', moveInDate: new Date().toISOString().slice(0, 10) });
+    } catch (err: any) {
+      setTenantFormError(err?.response?.data?.message || 'Đã xảy ra lỗi');
+    } finally {
+      setSubmittingTenant(false);
+    }
+  };
+
+  // ── Tạo hợp đồng ─────────────────────────────────────────────
+  const handleCreateContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { tenantId, listingId, startDate, endDate, rentAmount, depositAmount, terms } = contractForm;
+    if (!tenantId || !listingId || !startDate || !endDate || !rentAmount || !depositAmount) {
+      setContractFormError('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+    setContractFormError('');
+    setSubmittingContract(true);
+    try {
+      const created = await contractService.create({
+        tenantId: Number(tenantId),
+        listingId: Number(listingId),
+        startDate, endDate,
+        rentAmount: Number(rentAmount),
+        depositAmount: Number(depositAmount),
+        terms: terms || `Hợp đồng thuê phòng. Thanh toán vào ngày 1 mỗi tháng.`,
+      });
+      setContracts(prev => [created, ...prev]);
+      setShowCreateContract(false);
+      setContractForm({ tenantId: '', listingId: '', startDate: new Date().toISOString().slice(0, 10), endDate: '', rentAmount: '', depositAmount: '', terms: '' });
+    } catch (err: any) {
+      setContractFormError(err?.response?.data?.message || 'Đã xảy ra lỗi');
+    } finally {
+      setSubmittingContract(false);
+    }
+  };
+
+  // ── Kích hoạt hợp đồng ────────────────────────────────────────
+  const handleActivateContract = async (id: number) => {
+    if (!confirm('Kích hoạt hợp đồng? Hệ thống sẽ tự động tạo lịch thanh toán hàng tháng.')) return;
+    try {
+      const activated = await contractService.activate(id);
+      setContracts(prev => prev.map(c => c.id === id ? activated : c));
+      // Reload payments vì vừa sinh mới
+      paymentService.getAll().then(res => {
+        setPayments(res.payments);
+        setPaymentSummary(res.summary);
+      }).catch(() => {});
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Không thể kích hoạt hợp đồng');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -223,6 +354,24 @@ export function LandlordDashboardNew() {
             >
               <Plus className="w-5 h-5" />
               Đăng tin mới
+            </button>
+          )}
+          {activeTab === 'tenants' && (
+            <button
+              onClick={() => { setShowAddTenant(true); setTenantFormError(''); }}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Thêm người thuê
+            </button>
+          )}
+          {activeTab === 'contracts' && (
+            <button
+              onClick={() => { setShowCreateContract(true); setContractFormError(''); }}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Tạo hợp đồng
             </button>
           )}
         </div>
@@ -410,17 +559,80 @@ export function LandlordDashboardNew() {
                     className="w-full px-4 py-3 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                   />
                 </div>
+
+                {/* Image upload */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-2">Hình ảnh (tối đa 10 ảnh, mỗi ảnh &lt; 5MB)</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={imageFiles.length >= 10}
+                    className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center"
+                  >
+                    <ImagePlus className="w-5 h-5" />
+                    {imageFiles.length === 0
+                      ? 'Chọn ảnh từ máy tính'
+                      : `Thêm ảnh (${imageFiles.length}/10)`}
+                  </button>
+
+                  {imagePreviews.length > 0 && (
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mt-3">
+                      {imagePreviews.map((src, i) => (
+                        <div key={i} className="relative group aspect-square">
+                          <img
+                            src={src}
+                            alt={`Preview ${i + 1}`}
+                            className="w-full h-full object-cover rounded-lg border border-border"
+                          />
+                          {i === 0 && (
+                            <span className="absolute top-1 left-1 bg-primary text-primary-foreground text-xs px-1.5 py-0.5 rounded font-medium">
+                              Bìa
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(i)}
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {uploadProgress && (
+                    <p className="text-sm text-primary mt-2 animate-pulse">{uploadProgress}</p>
+                  )}
+                </div>
+
                 <div className="md:col-span-2 flex gap-3">
                   <button
                     type="submit"
                     disabled={isSubmittingPost}
                     className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors disabled:opacity-50"
                   >
-                    {isSubmittingPost ? 'Đang gửi...' : 'Gửi duyệt'}
+                    {isSubmittingPost
+                      ? (uploadProgress ? uploadProgress : 'Đang gửi...')
+                      : 'Gửi duyệt'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setShowPostForm(false); setPostError(''); }}
+                    onClick={() => {
+                      setShowPostForm(false);
+                      setPostError('');
+                      imagePreviews.forEach(url => URL.revokeObjectURL(url));
+                      setImageFiles([]);
+                      setImagePreviews([]);
+                    }}
                     className="px-6 py-3 border border-border rounded-lg font-medium hover:bg-accent transition-colors"
                   >
                     Hủy
@@ -525,10 +737,19 @@ export function LandlordDashboardNew() {
                   </div>
                 </div>
                 {contract.terms && (
-                  <p className="text-sm text-muted-foreground mt-3">{contract.terms}</p>
+                  <p className="text-sm text-muted-foreground mt-3 italic">"{contract.terms}"</p>
                 )}
-                {(contract.status === 'ENDED' || contract.status === 'EXPIRED') && (
-                  <div className="mt-4">
+                <div className="flex gap-3 mt-4">
+                  {contract.status === 'DRAFT' && (
+                    <button
+                      onClick={() => handleActivateContract(contract.id)}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Kích hoạt hợp đồng
+                    </button>
+                  )}
+                  {(contract.status === 'ENDED' || contract.status === 'EXPIRED') && (
                     <button
                       onClick={async () => {
                         try {
@@ -542,8 +763,8 @@ export function LandlordDashboardNew() {
                     >
                       Lưu trữ
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -641,6 +862,176 @@ export function LandlordDashboardNew() {
           </div>
         )}
       </div>
+
+      {/* ── Dialog: Thêm người thuê ── */}
+      {showAddTenant && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold">Thêm người thuê mới</h3>
+              <button onClick={() => setShowAddTenant(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {tenantFormError && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0" />{tenantFormError}
+              </div>
+            )}
+            <form onSubmit={handleAddTenant} className="space-y-4">
+              <div>
+                <label className="block text-sm mb-1">Họ tên *</label>
+                <input type="text" value={tenantForm.name}
+                  onChange={e => setTenantForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Nguyễn Văn A"
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm mb-1">Email *</label>
+                  <input type="email" value={tenantForm.email}
+                    onChange={e => setTenantForm(p => ({ ...p, email: e.target.value }))}
+                    placeholder="email@example.com"
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Số điện thoại *</label>
+                  <input type="text" value={tenantForm.phone}
+                    onChange={e => setTenantForm(p => ({ ...p, phone: e.target.value }))}
+                    placeholder="0901234567"
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Phòng *</label>
+                <select value={tenantForm.listingId}
+                  onChange={e => setTenantForm(p => ({ ...p, listingId: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">-- Chọn phòng --</option>
+                  {listings.filter(l => l.status === 'PUBLISHED').map(l => (
+                    <option key={l.id} value={l.id}>{l.title} — {l.district ?? l.city}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Ngày vào *</label>
+                <input type="date" value={tenantForm.moveInDate}
+                  onChange={e => setTenantForm(p => ({ ...p, moveInDate: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={submittingTenant}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors disabled:opacity-50">
+                  {submittingTenant ? 'Đang lưu...' : 'Thêm người thuê'}
+                </button>
+                <button type="button" onClick={() => setShowAddTenant(false)}
+                  className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-accent transition-colors">
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Dialog: Tạo hợp đồng ── */}
+      {showCreateContract && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold">Tạo hợp đồng mới</h3>
+              <button onClick={() => setShowCreateContract(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {contractFormError && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0" />{contractFormError}
+              </div>
+            )}
+            <form onSubmit={handleCreateContract} className="space-y-4">
+              <div>
+                <label className="block text-sm mb-1">Người thuê *</label>
+                <select value={contractForm.tenantId}
+                  onChange={e => {
+                    const t = tenants.find(t => t.id === Number(e.target.value));
+                    setContractForm(p => ({
+                      ...p,
+                      tenantId: e.target.value,
+                      listingId: t?.listingId?.toString() ?? p.listingId,
+                      rentAmount: p.rentAmount,
+                    }));
+                  }}
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">-- Chọn người thuê --</option>
+                  {tenants.filter(t => t.status === 'ACTIVE').map(t => (
+                    <option key={t.id} value={t.id}>{t.name} — {t.phone}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Phòng *</label>
+                <select value={contractForm.listingId}
+                  onChange={e => setContractForm(p => ({ ...p, listingId: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary">
+                  <option value="">-- Chọn phòng --</option>
+                  {listings.filter(l => l.status === 'PUBLISHED').map(l => (
+                    <option key={l.id} value={l.id}>{l.title}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm mb-1">Ngày bắt đầu *</label>
+                  <input type="date" value={contractForm.startDate}
+                    onChange={e => setContractForm(p => ({ ...p, startDate: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ngày kết thúc *</label>
+                  <input type="date" value={contractForm.endDate}
+                    onChange={e => setContractForm(p => ({ ...p, endDate: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm mb-1">Tiền thuê/tháng (₫) *</label>
+                  <input type="number" value={contractForm.rentAmount}
+                    onChange={e => setContractForm(p => ({ ...p, rentAmount: e.target.value }))}
+                    placeholder="5000000"
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Tiền đặt cọc (₫) *</label>
+                  <input type="number" value={contractForm.depositAmount}
+                    onChange={e => setContractForm(p => ({ ...p, depositAmount: e.target.value }))}
+                    placeholder="10000000"
+                    className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm mb-1">Điều khoản hợp đồng</label>
+                <textarea rows={3} value={contractForm.terms}
+                  onChange={e => setContractForm(p => ({ ...p, terms: e.target.value }))}
+                  placeholder="Thanh toán vào ngày 1 mỗi tháng. Không được nuôi thú cưng..."
+                  className="w-full px-4 py-2.5 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+              <p className="text-xs text-muted-foreground">Hợp đồng được tạo ở trạng thái <strong>Nháp</strong>. Sau khi xem lại, bấm <strong>Kích hoạt</strong> để sinh lịch thanh toán tự động.</p>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={submittingContract}
+                  className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors disabled:opacity-50">
+                  {submittingContract ? 'Đang tạo...' : 'Tạo hợp đồng'}
+                </button>
+                <button type="button" onClick={() => setShowCreateContract(false)}
+                  className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-accent transition-colors">
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Mark as Paid dialog */}
       {markPaidId && (

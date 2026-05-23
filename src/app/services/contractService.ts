@@ -55,6 +55,12 @@ export const contractService = {
     return data.metaData;
   },
 
+  // Landlord: activate contract DRAFT → ACTIVE + tự sinh payments
+  async activate(id: number): Promise<Contract> {
+    const { data } = await api.patch(`/contracts/${id}/activate`);
+    return data.metaData;
+  },
+
   // Landlord: archive contract
   async archive(id: number): Promise<Contract> {
     const { data } = await api.patch(`/contracts/${id}/archive`);

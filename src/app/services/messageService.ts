@@ -29,7 +29,7 @@ export const messageService = {
   // Kết nối WebSocket
   connectSocket(userId: number) {
     if (!socket) {
-      socket = io('http://localhost:3000', {
+      socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000', {
         query: { userId: String(userId) },
         withCredentials: true,
       });
