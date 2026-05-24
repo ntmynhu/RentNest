@@ -11,6 +11,7 @@ export interface Contract {
   depositAmount: number;
   terms: string | null;
   status: 'DRAFT' | 'ACTIVE' | 'ENDED' | 'EXPIRED' | 'ARCHIVED';
+  tenantConfirmedAt: string | null;
   tenant?: { id: number; name: string; email: string; phone: string };
   listing?: { id: number; title: string; address: string };
 }
@@ -52,6 +53,12 @@ export const contractService = {
     status: string;
   }>): Promise<Contract> {
     const { data } = await api.put(`/contracts/${id}`, payload);
+    return data.metaData;
+  },
+
+  // Tenant: confirm contract
+  async confirm(id: number): Promise<Contract> {
+    const { data } = await api.patch(`/contracts/${id}/confirm`);
     return data.metaData;
   },
 

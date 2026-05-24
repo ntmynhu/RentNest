@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, CreditCard, MessageSquare, Star, AlertCircle, CheckCircle, Link as LinkIcon } from 'lucide-react';
+import { Home, CreditCard, MessageSquare, Star, AlertCircle, CheckCircle, Link as LinkIcon, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { paymentService, Payment } from '../services/paymentService';
 import { contractService, Contract } from '../services/contractService';
@@ -16,6 +16,10 @@ export function TenantDashboard() {
   // Contract / room state
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(true);
+
+  // Contract confirm state
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [confirmError, setConfirmError] = useState('');
 
   // Review form state
   const [selectedListingId, setSelectedListingId] = useState<number | null>(null);
@@ -41,7 +45,24 @@ export function TenantDashboard() {
   }, []);
 
   // Pick the most recent ACTIVE contract as current room
-  const activeContract = contracts.find(c => c.status === 'ACTIVE') ?? contracts[0] ?? null;
+  const activeContract = contracts.find(c => c.status === 'ACTIVE') ?? null;
+  // Contracts waiting for tenant confirmation
+  const pendingContracts = contracts.filter(c => c.status === 'DRAFT' && !c.tenantConfirmedAt);
+  // Confirmed but not yet activated
+  const confirmedContracts = contracts.filter(c => c.status === 'DRAFT' && c.tenantConfirmedAt);
+
+  const handleConfirmContract = async (contractId: number) => {
+    setConfirmingId(contractId);
+    setConfirmError('');
+    try {
+      const updated = await contractService.confirm(contractId);
+      setContracts(prev => prev.map(c => c.id === contractId ? { ...c, tenantConfirmedAt: updated.tenantConfirmedAt } : c));
+    } catch (err: any) {
+      setConfirmError(err?.response?.data?.message || 'Không thể xác nhận hợp đồng');
+    } finally {
+      setConfirmingId(null);
+    }
+  };
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -124,6 +145,58 @@ export function TenantDashboard() {
         {/* Tab: Phòng & Thanh toán */}
         {activeTab === 'room' && (
           <div className="space-y-6">
+
+            {/* Hợp đồng chờ xác nhận */}
+            {!contractsLoading && pendingContracts.length > 0 && (
+              <div className="space-y-3">
+                {confirmError && (
+                  <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+                    <AlertCircle className="w-4 h-4 shrink-0" />{confirmError}
+                  </div>
+                )}
+                {pendingContracts.map(c => (
+                  <div key={c.id} className="bg-yellow-50 border border-yellow-200 rounded-xl p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-6 h-6 text-yellow-600 shrink-0" />
+                        <div>
+                          <p className="font-semibold text-yellow-800">Hợp đồng cần xác nhận</p>
+                          <p className="text-sm text-yellow-700 mt-0.5">{c.listing?.title ?? `Phòng #${c.listingId}`}</p>
+                          <p className="text-sm text-yellow-700">{c.listing?.address}</p>
+                          <p className="text-sm text-yellow-700 mt-1">
+                            Thời hạn: {formatDate(c.startDate)} — {formatDate(c.endDate)}
+                            &nbsp;·&nbsp;{formatPrice(Number(c.rentAmount))}/tháng
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleConfirmContract(c.id)}
+                        disabled={confirmingId === c.id}
+                        className="shrink-0 px-4 py-2 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50 text-sm"
+                      >
+                        {confirmingId === c.id ? 'Đang xác nhận...' : 'Xác nhận hợp đồng'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Hợp đồng đã xác nhận, chờ landlord kích hoạt */}
+            {!contractsLoading && confirmedContracts.length > 0 && (
+              <div className="space-y-3">
+                {confirmedContracts.map(c => (
+                  <div key={c.id} className="bg-blue-50 border border-blue-200 rounded-xl p-5 flex items-center gap-3">
+                    <CheckCircle className="w-5 h-5 text-blue-600 shrink-0" />
+                    <div>
+                      <p className="font-medium text-blue-800">Đã xác nhận — chờ chủ nhà kích hoạt</p>
+                      <p className="text-sm text-blue-700">{c.listing?.title} · {formatPrice(Number(c.rentAmount))}/tháng</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Room info from active contract */}
             {contractsLoading ? (
               <div className="bg-card rounded-xl p-6 border border-border animate-pulse h-36" />

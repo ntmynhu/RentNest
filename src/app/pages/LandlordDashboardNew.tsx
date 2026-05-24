@@ -712,10 +712,13 @@ export function LandlordDashboardNew() {
                   </div>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                     contract.status === 'ACTIVE' ? 'bg-green-500/10 text-green-600' :
+                    contract.status === 'DRAFT' && contract.tenantConfirmedAt ? 'bg-blue-500/10 text-blue-600' :
                     contract.status === 'DRAFT' ? 'bg-yellow-500/10 text-yellow-600' :
                     'bg-muted text-muted-foreground'
                   }`}>
-                    {contractStatusLabel(contract.status)}
+                    {contract.status === 'DRAFT' && contract.tenantConfirmedAt
+                      ? 'Đã xác nhận'
+                      : contractStatusLabel(contract.status)}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -739,15 +742,22 @@ export function LandlordDashboardNew() {
                 {contract.terms && (
                   <p className="text-sm text-muted-foreground mt-3 italic">"{contract.terms}"</p>
                 )}
-                <div className="flex gap-3 mt-4">
+                <div className="flex flex-wrap items-center gap-3 mt-4">
                   {contract.status === 'DRAFT' && (
-                    <button
-                      onClick={() => handleActivateContract(contract.id)}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Kích hoạt hợp đồng
-                    </button>
+                    contract.tenantConfirmedAt ? (
+                      <button
+                        onClick={() => handleActivateContract(contract.id)}
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Kích hoạt hợp đồng
+                      </button>
+                    ) : (
+                      <span className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-medium border border-yellow-200">
+                        <AlertCircle className="w-4 h-4" />
+                        Chờ người thuê xác nhận
+                      </span>
+                    )
                   )}
                   {(contract.status === 'ENDED' || contract.status === 'EXPIRED') && (
                     <button
