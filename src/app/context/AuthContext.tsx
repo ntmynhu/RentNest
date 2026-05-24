@@ -5,7 +5,7 @@ interface AuthContextType {
   user: AuthUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
-  register: (payload: { fullName: string; email: string; password: string; phone: string; role?: string }) => Promise<AuthUser>;
+  register: (payload: { fullName: string; email: string; password: string; phone: string; role?: string }) => Promise<AuthUser | null>;
   logout: () => Promise<void>;
   forgotPassword: (email: string) => Promise<{ message: string }>;
 }
@@ -39,16 +39,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result.user;
   };
 
-  // UC1: Đăng ký thật — tự động đăng nhập sau khi đăng ký
-  const register = async (payload: { fullName: string; email: string; password: string; phone: string; role?: string }): Promise<AuthUser> => {
+  // UC1: Đăng ký thật
+  // Trả về AuthUser nếu BE tự động đăng nhập (có accessToken),
+  // hoặc null nếu BE chỉ tạo tài khoản và yêu cầu đăng nhập lại.
+  const register = async (payload: { fullName: string; email: string; password: string; phone: string; role?: string }): Promise<AuthUser | null> => {
     const result = await authService.register(payload);
-    // BE trả về accessToken + user sau khi đăng ký
     if (result.accessToken && result.user) {
       localStorage.setItem('accessToken', result.accessToken);
       setUser(result.user);
       return result.user;
     }
-    throw new Error(result.message || 'Đăng ký thất bại');
+    // BE chỉ trả message, không auto-login → trả null để FE redirect về trang đăng nhập
+    return null;
   };
 
   // Đăng xuất

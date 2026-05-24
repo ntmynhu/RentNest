@@ -60,8 +60,16 @@ export function AuthPage() {
       password: formData.password,
       role: userType === 'landlord' ? 'LANDLORD' : 'TENANT',
     });
-    const dest = roleMap[loggedInUser.role] ?? '/';
-    navigate(dest);
+
+    if (loggedInUser) {
+      // BE tự động đăng nhập → chuyển thẳng vào dashboard
+      navigate(roleMap[loggedInUser.role] ?? '/');
+    } else {
+      // BE chỉ tạo tài khoản → hiện thông báo và chuyển sang form đăng nhập
+      setSuccess('Đăng ký thành công! Vui lòng đăng nhập để tiếp tục.');
+      setMode('login');
+      setFormData(prev => ({ ...prev, fullName: '', phone: '', password: '', confirmPassword: '' }));
+    }
   };
 
   const handleForgot = async () => {
