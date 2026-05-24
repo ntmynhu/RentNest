@@ -22,6 +22,18 @@ export function LandlordDashboardNew() {
   const [activeTab, setActiveTab] = useState<'listings' | 'tenants' | 'contracts' | 'payments' | 'messages'>('listings');
   const [showPostForm, setShowPostForm] = useState(false);
 
+  // Edit listing state
+  const [editingListing, setEditingListing] = useState<Listing | null>(null);
+  const [editForm, setEditForm] = useState({ title: '', description: '', price: '', area: '', address: '', district: '', city: '', roomType: 'SINGLE_ROOM' });
+  const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
+  const [editImagePreviews, setEditImagePreviews] = useState<string[]>([]); // existing URLs + new object URLs
+  const [editKeptUrls, setEditKeptUrls] = useState<string[]>([]);           // existing image URLs to keep
+  const [editUploadProgress, setEditUploadProgress] = useState('');
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
   // Data states
   const [listings, setListings] = useState<Listing[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -175,6 +187,99 @@ export function LandlordDashboardNew() {
     URL.revokeObjectURL(imagePreviews[index]);
     setImageFiles(prev => prev.filter((_, i) => i !== index));
     setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ── Mở form chỉnh sửa ────────────────────────────────────────
+  const openEditForm = (listing: Listing) => {
+    setEditingListing(listing);
+    setEditForm({
+      title: listing.title,
+      description: listing.description,
+      price: String(listing.price),
+      area: String(listing.area),
+      address: listing.address,
+      district: listing.district ?? '',
+      city: listing.city ?? '',
+      roomType: listing.roomType,
+    });
+    const existingUrls = listing.images.map(img => img.url);
+    setEditKeptUrls(existingUrls);
+    setEditImagePreviews(existingUrls);
+    setEditImageFiles([]);
+    setEditError('');
+    setEditSuccess('');
+    setShowPostForm(false);
+  };
+
+  const handleEditImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const combined = [...editImageFiles, ...files].slice(0, 10 - editKeptUrls.length);
+    setEditImageFiles(combined);
+    setEditImagePreviews([...editKeptUrls, ...combined.map(f => URL.createObjectURL(f))]);
+    if (editFileInputRef.current) editFileInputRef.current.value = '';
+  };
+
+  const handleRemoveEditImage = (index: number) => {
+    if (index < editKeptUrls.length) {
+      // Remove existing URL
+      const newKept = editKeptUrls.filter((_, i) => i !== index);
+      setEditKeptUrls(newKept);
+      setEditImagePreviews([...newKept, ...editImageFiles.map(f => URL.createObjectURL(f))]);
+    } else {
+      // Remove new file
+      const fileIdx = index - editKeptUrls.length;
+      URL.revokeObjectURL(editImagePreviews[index]);
+      const newFiles = editImageFiles.filter((_, i) => i !== fileIdx);
+      setEditImageFiles(newFiles);
+      setEditImagePreviews([...editKeptUrls, ...newFiles.map(f => URL.createObjectURL(f))]);
+    }
+  };
+
+  const handleSubmitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingListing) return;
+    const { title, description, price, area, address, district, city, roomType } = editForm;
+    if (!title || !description || !price || !area || !address) {
+      setEditError('Vui lòng điền đầy đủ thông tin');
+      return;
+    }
+    setEditError('');
+    setEditSuccess('');
+    setIsSubmittingEdit(true);
+    try {
+      let finalImageUrls: string[] | undefined;
+      if (editImageFiles.length > 0) {
+        setEditUploadProgress(`Đang tải ${editImageFiles.length} ảnh lên...`);
+        const uploaded = await uploadService.uploadImages(editImageFiles);
+        setEditUploadProgress('');
+        finalImageUrls = [...editKeptUrls, ...uploaded];
+      } else {
+        // Only pass imageUrls if something changed (images removed)
+        const originalUrls = editingListing.images.map(img => img.url);
+        const changed = editKeptUrls.length !== originalUrls.length;
+        finalImageUrls = changed ? editKeptUrls : undefined;
+      }
+
+      const updated = await listingService.update(editingListing.id, {
+        title, description,
+        price: Number(price),
+        area: Number(area),
+        address,
+        district: district || undefined,
+        city: city || undefined,
+        roomType,
+        ...(finalImageUrls !== undefined && { imageUrls: finalImageUrls }),
+      });
+      setListings(prev => prev.map(l => l.id === editingListing.id ? { ...l, ...updated } : l));
+      setEditSuccess('Đã cập nhật! Tin đăng đang chờ admin duyệt lại.');
+      setTimeout(() => { setEditingListing(null); setEditSuccess(''); }, 2000);
+    } catch (err: any) {
+      setEditUploadProgress('');
+      setEditError(err?.response?.data?.message || 'Đã xảy ra lỗi, vui lòng thử lại');
+    } finally {
+      setIsSubmittingEdit(false);
+    }
   };
 
   const handleSubmitPost = async (e: React.FormEvent) => {
@@ -433,6 +538,13 @@ export function LandlordDashboardNew() {
                           Xem
                         </Link>
                         <button
+                          onClick={() => openEditForm(listing)}
+                          className="flex items-center gap-2 px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary/10 transition-colors text-sm"
+                        >
+                          <Plus className="w-4 h-4 rotate-45" />
+                          Sửa
+                        </button>
+                        <button
                           onClick={() => handleDeleteListing(listing.id)}
                           className="flex items-center gap-2 px-4 py-2 border border-destructive text-destructive rounded-lg hover:bg-destructive/10 transition-colors text-sm"
                         >
@@ -449,6 +561,109 @@ export function LandlordDashboardNew() {
         )}
 
         {/* V11: Post Listing Form */}
+        {/* Edit Listing Form */}
+        {editingListing && (
+          <div className="bg-card rounded-xl p-6 border border-border">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-semibold">Chỉnh sửa tin đăng</h2>
+                <p className="text-sm text-muted-foreground mt-1">Sau khi lưu, tin sẽ chờ admin duyệt lại</p>
+              </div>
+              <button onClick={() => { setEditingListing(null); setEditError(''); }}
+                className="text-muted-foreground hover:text-foreground">Đóng</button>
+            </div>
+
+            {editError && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 shrink-0" />{editError}
+              </div>
+            )}
+            {editSuccess && (
+              <div className="mb-4 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                <CheckCircle className="w-4 h-4 shrink-0" />{editSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitEdit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-1">Tiêu đề *</label>
+                  <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-1">Mô tả *</label>
+                  <textarea rows={4} value={editForm.description} onChange={e => setEditForm(p => ({ ...p, description: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Giá thuê (VND/tháng) *</label>
+                  <input type="number" value={editForm.price} onChange={e => setEditForm(p => ({ ...p, price: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Diện tích (m²) *</label>
+                  <input type="number" value={editForm.area} onChange={e => setEditForm(p => ({ ...p, area: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm mb-1">Địa chỉ *</label>
+                  <input value={editForm.address} onChange={e => setEditForm(p => ({ ...p, address: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Quận/Huyện</label>
+                  <input value={editForm.district} onChange={e => setEditForm(p => ({ ...p, district: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary" />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Loại phòng</label>
+                  <select value={editForm.roomType} onChange={e => setEditForm(p => ({ ...p, roomType: e.target.value }))}
+                    className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary">
+                    {ROOM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Image management */}
+              <div>
+                <label className="block text-sm mb-2">Hình ảnh</label>
+                {editImagePreviews.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {editImagePreviews.map((src, i) => (
+                      <div key={i} className="relative w-24 h-24">
+                        <img src={src} alt="" className="w-full h-full object-cover rounded-lg border border-border" />
+                        <button type="button" onClick={() => handleRemoveEditImage(i)}
+                          className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-white rounded-full flex items-center justify-center text-xs hover:bg-destructive/80">
+                          <X className="w-3 h-3" />
+                        </button>
+                        {i === 0 && <span className="absolute bottom-1 left-1 text-xs bg-black/60 text-white px-1 rounded">Chính</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <input ref={editFileInputRef} type="file" accept="image/*" multiple onChange={handleEditImageSelect} className="hidden" />
+                <button type="button" onClick={() => editFileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                  <ImagePlus className="w-4 h-4" />
+                  {editUploadProgress || 'Thêm ảnh'}
+                </button>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={isSubmittingEdit}
+                  className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-secondary transition-colors disabled:opacity-50">
+                  {isSubmittingEdit ? 'Đang lưu...' : 'Lưu thay đổi'}
+                </button>
+                <button type="button" onClick={() => { setEditingListing(null); setEditError(''); }}
+                  className="px-6 py-2 border border-border rounded-lg hover:bg-accent transition-colors">
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {activeTab === 'listings' && showPostForm && (
           <div className="bg-card rounded-xl p-6 border border-border">
             <div className="flex items-center justify-between mb-6">

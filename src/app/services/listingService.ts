@@ -92,6 +92,22 @@ export const listingService = {
     return data.metaData;
   },
 
+  // Chủ nhà chỉnh sửa phòng (→ PENDING_APPROVAL)
+  async update(id: number, payload: {
+    title?: string;
+    description?: string;
+    price?: number;
+    address?: string;
+    district?: string;
+    city?: string;
+    area?: number;
+    roomType?: string;
+    imageUrls?: string[];
+  }): Promise<Listing> {
+    const { data } = await api.put(`/listings/${id}`, payload);
+    return data.metaData;
+  },
+
   // Admin duyệt phòng
   async approve(id: number) {
     const { data } = await api.patch(`/listings/${id}/approve`);
