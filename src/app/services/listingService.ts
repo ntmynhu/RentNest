@@ -102,6 +102,7 @@ export const listingService = {
     city?: string;
     area?: number;
     roomType?: string;
+    amenityIds?: number[];
     imageUrls?: string[];
   }): Promise<Listing> {
     const { data } = await api.put(`/listings/${id}`, payload);

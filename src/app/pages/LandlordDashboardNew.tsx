@@ -9,6 +9,7 @@ import { tenantService, Tenant } from '../services/tenantService';
 import { contractService, Contract } from '../services/contractService';
 import { paymentService, Payment } from '../services/paymentService';
 import { uploadService } from '../services/uploadService';
+import { amenityService, Amenity } from '../services/amenityService';
 
 const ROOM_TYPES = [
   { value: 'SINGLE_ROOM', label: 'Phòng trọ' },
@@ -25,6 +26,7 @@ export function LandlordDashboardNew() {
   // Edit listing state
   const [editingListing, setEditingListing] = useState<Listing | null>(null);
   const [editForm, setEditForm] = useState({ title: '', description: '', price: '', area: '', address: '', district: '', city: '', roomType: 'SINGLE_ROOM' });
+  const [editAmenityIds, setEditAmenityIds] = useState<number[]>([]);
   const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
   const [editImagePreviews, setEditImagePreviews] = useState<string[]>([]); // existing URLs + new object URLs
   const [editKeptUrls, setEditKeptUrls] = useState<string[]>([]);           // existing image URLs to keep
@@ -35,6 +37,7 @@ export function LandlordDashboardNew() {
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Data states
+  const [amenities, setAmenities] = useState<Amenity[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -53,6 +56,7 @@ export function LandlordDashboardNew() {
     address: '', district: '', city: 'TP. Hồ Chí Minh',
     roomType: 'SINGLE_ROOM',
   });
+  const [postAmenityIds, setPostAmenityIds] = useState<number[]>([]);
   const [postError, setPostError] = useState('');
   const [postSuccess, setPostSuccess] = useState('');
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
@@ -107,6 +111,8 @@ export function LandlordDashboardNew() {
       })
       .catch(() => {})
       .finally(() => setLoadingPayments(false));
+
+    amenityService.getAll().then(setAmenities).catch(() => {});
   }, []);
 
   const formatPrice = (price: number) =>
@@ -206,6 +212,7 @@ export function LandlordDashboardNew() {
     setEditKeptUrls(existingUrls);
     setEditImagePreviews(existingUrls);
     setEditImageFiles([]);
+    setEditAmenityIds(listing.amenities.map(a => a.amenity.id));
     setEditError('');
     setEditSuccess('');
     setShowPostForm(false);
@@ -269,6 +276,7 @@ export function LandlordDashboardNew() {
         district: district || undefined,
         city: city || undefined,
         roomType,
+        amenityIds: editAmenityIds,
         ...(finalImageUrls !== undefined && { imageUrls: finalImageUrls }),
       });
       setListings(prev => prev.map(l => l.id === editingListing.id ? { ...l, ...updated } : l));
@@ -310,11 +318,13 @@ export function LandlordDashboardNew() {
         district: district || undefined,
         city: city || undefined,
         roomType,
+        amenityIds: postAmenityIds.length > 0 ? postAmenityIds : undefined,
         imageUrls,
       });
       setListings(prev => [created, ...prev]);
       setPostSuccess('Tin đăng đã được gửi duyệt thành công!');
       setPostForm({ title: '', description: '', price: '', area: '', address: '', district: '', city: 'TP. Hồ Chí Minh', roomType: 'SINGLE_ROOM' });
+      setPostAmenityIds([]);
       // Xóa ảnh preview
       imagePreviews.forEach(url => URL.revokeObjectURL(url));
       setImageFiles([]);
@@ -625,6 +635,28 @@ export function LandlordDashboardNew() {
                 </div>
               </div>
 
+              {/* Amenities */}
+              {amenities.length > 0 && (
+                <div>
+                  <label className="block text-sm mb-2">Tiện ích</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {amenities.map(a => (
+                      <label key={a.id} className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={editAmenityIds.includes(a.id)}
+                          onChange={e => setEditAmenityIds(prev =>
+                            e.target.checked ? [...prev, a.id] : prev.filter(id => id !== a.id)
+                          )}
+                          className="w-4 h-4 accent-primary"
+                        />
+                        <span className="text-sm">{a.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Image management */}
               <div>
                 <label className="block text-sm mb-2">Hình ảnh</label>
@@ -774,6 +806,28 @@ export function LandlordDashboardNew() {
                     className="w-full px-4 py-3 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                   />
                 </div>
+
+                {/* Amenities */}
+                {amenities.length > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm mb-2">Tiện ích</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {amenities.map(a => (
+                        <label key={a.id} className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={postAmenityIds.includes(a.id)}
+                            onChange={e => setPostAmenityIds(prev =>
+                              e.target.checked ? [...prev, a.id] : prev.filter(id => id !== a.id)
+                            )}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <span className="text-sm">{a.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Image upload */}
                 <div className="md:col-span-2">
