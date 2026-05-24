@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Search, MoreVertical } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Send, Search, MoreVertical, AlertCircle, RefreshCw } from 'lucide-react';
 import { messageService, Conversation, Message } from '../services/messageService';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,7 +12,23 @@ export function MessagesPage() {
   const [loadingConvs, setLoadingConvs] = useState(true);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [sendError, setSendError] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ASR-16: Retry helper – exponential backoff, up to maxRetries attempts
+  const sendWithRetry = async (fn: () => Promise<Message>, maxRetries = 2): Promise<Message> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        // Wait 1s, then 2s before next attempt
+        await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+      }
+    }
+    throw new Error('Max retries exceeded');
+  };
 
   // Load conversations on mount + connect socket
   useEffect(() => {
@@ -101,18 +117,23 @@ export function MessagesPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageText.trim() || !selectedConv || !user) return;
+    if (!messageText.trim() || !selectedConv || !user || isSending) return;
 
     const text = messageText;
     setMessageText('');
+    setSendError('');
+    setIsSending(true);
 
     try {
-      let newMsg: Message;
-      if (user.role === 'LANDLORD') {
-        newMsg = await messageService.sendToTenant(selectedConv.tenantId, text);
-      } else {
-        newMsg = await messageService.sendToLandlord(selectedConv.landlordId, text, selectedConv.listingId ?? undefined);
-      }
+      // ASR-16: Auto-retry up to 2 times with exponential backoff (1s, 2s)
+      const newMsg = await sendWithRetry(() => {
+        if (user.role === 'LANDLORD') {
+          return messageService.sendToTenant(selectedConv.tenantId, text);
+        } else {
+          return messageService.sendToLandlord(selectedConv.landlordId, text, selectedConv.listingId ?? undefined);
+        }
+      });
+
       setMessages(prev => [...prev, newMsg]);
       setConversations(prev => prev.map(c =>
         c.id === selectedConvId ? { ...c, messages: [newMsg] } : c
@@ -121,9 +142,12 @@ export function MessagesPage() {
       // Emit via socket for real-time delivery to the other side
       const sock = messageService.getSocket();
       sock?.emit('send_message', { conversationId: selectedConvId, content: text });
-    } catch (err) {
-      // Restore text if send fails
+    } catch {
+      // All retries failed – restore text + show error
       setMessageText(text);
+      setSendError('Không thể gửi tin nhắn. Vui lòng thử lại.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -267,14 +291,28 @@ export function MessagesPage() {
 
                 {/* Input */}
                 <form onSubmit={handleSendMessage} className="p-4 border-t border-border">
+                  {sendError && (
+                    <div className="mb-2 flex items-center gap-2 text-sm text-destructive">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{sendError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSendError('')}
+                        className="ml-auto text-xs underline hover:no-underline"
+                      >
+                        Đóng
+                      </button>
+                    </div>
+                  )}
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
                       <textarea
                         value={messageText}
-                        onChange={e => setMessageText(e.target.value)}
+                        onChange={e => { setMessageText(e.target.value); setSendError(''); }}
                         placeholder="Nhập tin nhắn..."
                         rows={1}
-                        className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                        disabled={isSending}
+                        className="w-full px-4 py-2 rounded-lg bg-input-background border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none disabled:opacity-60"
                         onKeyDown={e => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
@@ -285,10 +323,13 @@ export function MessagesPage() {
                     </div>
                     <button
                       type="submit"
-                      disabled={!messageText.trim()}
+                      disabled={!messageText.trim() || isSending}
                       className="p-3 bg-primary text-primary-foreground rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
                     >
-                      <Send className="w-5 h-5" />
+                      {isSending
+                        ? <RefreshCw className="w-5 h-5 animate-spin" />
+                        : <Send className="w-5 h-5" />
+                      }
                     </button>
                   </div>
                 </form>

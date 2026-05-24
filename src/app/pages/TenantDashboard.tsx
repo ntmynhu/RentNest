@@ -4,8 +4,11 @@ import { Link } from 'react-router-dom';
 import { paymentService, Payment } from '../services/paymentService';
 import { contractService, Contract } from '../services/contractService';
 import { reviewService } from '../services/reviewService';
+import { messageService } from '../services/messageService';
+import { useAuth } from '../context/AuthContext';
 
 export function TenantDashboard() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'room' | 'messages' | 'reviews'>('room');
 
   // Payments state
@@ -43,6 +46,22 @@ export function TenantDashboard() {
       .catch(() => {})
       .finally(() => setContractsLoading(false));
   }, []);
+
+  // ASR-21: Real-time payment notification – connect socket and listen for payment_updated
+  useEffect(() => {
+    if (!user) return;
+    const sock = messageService.connectSocket(user.id);
+
+    sock.on('payment_updated', (data: { paymentId: number; status: string }) => {
+      setPayments(prev =>
+        prev.map(p => p.id === data.paymentId ? { ...p, status: data.status as Payment['status'] } : p)
+      );
+    });
+
+    return () => {
+      sock.off('payment_updated');
+    };
+  }, [user]);
 
   // Pick the most recent ACTIVE contract as current room
   const activeContract = contracts.find(c => c.status === 'ACTIVE') ?? null;
