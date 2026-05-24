@@ -8,6 +8,7 @@ import { TenantDashboard } from './pages/TenantDashboard';
 import { LandlordDashboardNew } from './pages/LandlordDashboardNew';
 import { AdminPanel } from './pages/AdminPanel';
 import { AuthPage } from './pages/AuthPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MessagesPage } from './pages/MessagesPage';
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="admin" element={<AdminPanel />} />
             <Route path="messages" element={<MessagesPage />} />
             <Route path="auth" element={<AuthPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
